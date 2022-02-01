@@ -1,207 +1,257 @@
-var cityInput = document.querySelector('#city-input');
-var cityBtn = document.querySelector('#search-btn');
-var cityNameEl = document.querySelector('#city-name');
-var cityArr = [];
-var apiKey = 'e4ab7318fab329c7de8c4fd9dd5056d7'; // please enter API Key here
+// Global variables
+var searchHistory = [];
+var weatherApiRootUrl = 'https://api.openweathermap.org';
+var weatherApiKey = 'd91f911bcf2c0f925fb6535547a5ddc9';
 
-var formHandler = function(event) {
-    // formats city name
-    var selectedCity = cityInput
-        .value
-        .trim()
-        .toLowerCase()
-        .split(' ')
-        .map((s) => s.charAt(0).toUpperCase() + s.substring(1))
-        .join(' ');
+// DOM element references
+var searchForm = document.querySelector('#search-form');
+var searchInput = document.querySelector('#search-input');
+var todayContainer = document.querySelector('#today');
+var forecastContainer = document.querySelector('#forecast');
+var searchHistoryContainer = document.querySelector('#history');
 
-    if (selectedCity) {
-        getCoords(selectedCity);
-        cityInput.value = '';
-    } else {
-        alert('Please enter a city!');
-    };
-};
+// Add timezone plugins to day.js
+dayjs.extend(window.dayjs_plugin_utc);
+dayjs.extend(window.dayjs_plugin_timezone);
 
-// uses 'current weather api' to fetch latitude and longitude
-var getCoords = function(city) {
-    var currentWeatherApi = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=imperial&appid=${apiKey}`;
+// Function to display the search history list.
+function renderSearchHistory() {
+  searchHistoryContainer.innerHTML = '';
 
-    fetch(currentWeatherApi).then(function(response) {
-        if (response.ok) {
-            response.json().then(function(data) {
-                var lon = data.coord['lon'];
-                var lat = data.coord['lat'];
-                getCityForecast(city, lon, lat);
+  // Start at end of history array and count down to show the most recent at the top.
+  for (var i = searchHistory.length - 1; i >= 0; i--) {
+    var btn = document.createElement('button');
+    btn.setAttribute('type', 'button');
+    btn.setAttribute('aria-controls', 'today forecast');
+    btn.classList.add('history-btn', 'btn-history');
 
-                // saves searched city and refreshes recent city list
-                if (document.querySelector('.city-list')) {
-                    document.querySelector('.city-list').remove();
-                }
+    // `data-search` allows access to city name when click handler is invoked
+    btn.setAttribute('data-search', searchHistory[i]);
+    btn.textContent = searchHistory[i];
+    searchHistoryContainer.append(btn);
+  }
+}
 
-                saveCity(city);
-                loadCities();
-            });
-        } else {
-            alert(`Error: ${response.statusText}`)
-        }
+// Function to update history in local storage then updates displayed history.
+function appendToHistory(search) {
+  // If there is no search term return the function
+  if (searchHistory.indexOf(search) !== -1) {
+    return;
+  }
+  searchHistory.push(search);
+
+  localStorage.setItem('search-history', JSON.stringify(searchHistory));
+  renderSearchHistory();
+}
+
+// Function to get search history from local storage
+function initSearchHistory() {
+  var storedHistory = localStorage.getItem('search-history');
+  if (storedHistory) {
+    searchHistory = JSON.parse(storedHistory);
+  }
+  renderSearchHistory();
+}
+
+// Function to display the current weather data fetched from OpenWeather api.
+function renderCurrentWeather(city, weather, timezone) {
+  var date = dayjs().tz(timezone).format('M/D/YYYY');
+
+  // Store response data from our fetch request in variables
+  var tempF = weather.temp;
+  var windMph = weather.wind_speed;
+  var humidity = weather.humidity;
+  var uvi = weather.uvi;
+  var iconUrl = `https://openweathermap.org/img/w/${weather.weather[0].icon}.png`;
+  var iconDescription = weather.weather[0].description || weather[0].main;
+
+  var card = document.createElement('div');
+  var cardBody = document.createElement('div');
+  var heading = document.createElement('h2');
+  var weatherIcon = document.createElement('img');
+  var tempEl = document.createElement('p');
+  var windEl = document.createElement('p');
+  var humidityEl = document.createElement('p');
+  var uvEl = document.createElement('p');
+  var uviBadge = document.createElement('button');
+
+  card.setAttribute('class', 'card');
+  cardBody.setAttribute('class', 'card-body');
+  card.append(cardBody);
+
+  heading.setAttribute('class', 'h3 card-title');
+  tempEl.setAttribute('class', 'card-text');
+  windEl.setAttribute('class', 'card-text');
+  humidityEl.setAttribute('class', 'card-text');
+
+  heading.textContent = `${city} (${date})`;
+  weatherIcon.setAttribute('src', iconUrl);
+  weatherIcon.setAttribute('alt', iconDescription);
+  weatherIcon.setAttribute('class', 'weather-img');
+  heading.append(weatherIcon);
+  tempEl.textContent = `Temp: ${tempF}°F`;
+  windEl.textContent = `Wind: ${windMph} MPH`;
+  humidityEl.textContent = `Humidity: ${humidity} %`;
+  cardBody.append(heading, tempEl, windEl, humidityEl);
+
+  uvEl.textContent = 'UV Index: ';
+  uviBadge.classList.add('btn', 'btn-sm');
+
+  if (uvi < 3) {
+    uviBadge.classList.add('btn-success');
+  } else if (uvi < 7) {
+    uviBadge.classList.add('btn-warning');
+  } else {
+    uviBadge.classList.add('btn-danger');
+  }
+
+  uviBadge.textContent = uvi;
+  uvEl.append(uviBadge);
+  cardBody.append(uvEl);
+
+  todayContainer.innerHTML = '';
+  todayContainer.append(card);
+}
+
+// Function to display a forecast card given an object from open weather api
+// daily forecast.
+function renderForecastCard(forecast, timezone) {
+  // variables for data from api
+  var unixTs = forecast.dt;
+  var iconUrl = `https://openweathermap.org/img/w/${forecast.weather[0].icon}.png`;
+  var iconDescription = forecast.weather[0].description;
+  var tempF = forecast.temp.day;
+  var { humidity } = forecast;
+  var windMph = forecast.wind_speed;
+
+  // Create elements for a card
+  var col = document.createElement('div');
+  var card = document.createElement('div');
+  var cardBody = document.createElement('div');
+  var cardTitle = document.createElement('h5');
+  var weatherIcon = document.createElement('img');
+  var tempEl = document.createElement('p');
+  var windEl = document.createElement('p');
+  var humidityEl = document.createElement('p');
+
+  col.append(card);
+  card.append(cardBody);
+  cardBody.append(cardTitle, weatherIcon, tempEl, windEl, humidityEl);
+
+  col.setAttribute('class', 'col-md');
+  col.classList.add('five-day-card');
+  card.setAttribute('class', 'card bg-primary h-100 text-white');
+  cardBody.setAttribute('class', 'card-body p-2');
+  cardTitle.setAttribute('class', 'card-title');
+  tempEl.setAttribute('class', 'card-text');
+  windEl.setAttribute('class', 'card-text');
+  humidityEl.setAttribute('class', 'card-text');
+
+  // Add content to elements
+  cardTitle.textContent = dayjs.unix(unixTs).tz(timezone).format('M/D/YYYY');
+  weatherIcon.setAttribute('src', iconUrl);
+  weatherIcon.setAttribute('alt', iconDescription);
+  tempEl.textContent = `Temp: ${tempF} °F`;
+  windEl.textContent = `Wind: ${windMph} MPH`;
+  humidityEl.textContent = `Humidity: ${humidity} %`;
+
+  forecastContainer.append(col);
+}
+
+// Function to display 5 day forecast.
+function renderForecast(dailyForecast, timezone) {
+  // Create unix timestamps for start and end of 5 day forecast
+  var startDt = dayjs().tz(timezone).add(1, 'day').startOf('day').unix();
+  var endDt = dayjs().tz(timezone).add(6, 'day').startOf('day').unix();
+
+  var headingCol = document.createElement('div');
+  var heading = document.createElement('h4');
+
+  headingCol.setAttribute('class', 'col-12');
+  heading.textContent = '5-Day Forecast:';
+  headingCol.append(heading);
+
+  forecastContainer.innerHTML = '';
+  forecastContainer.append(headingCol);
+  for (var i = 0; i < dailyForecast.length; i++) {
+    // The api returns forecast data which may include 12pm on the same day and
+    // always includes the next 7 days. The api documentation does not provide
+    // information on the behavior for including the same day. Results may have
+    // 7 or 8 items.
+    if (dailyForecast[i].dt >= startDt && dailyForecast[i].dt < endDt) {
+      renderForecastCard(dailyForecast[i], timezone);
+    }
+  }
+}
+
+function renderItems(city, data) {
+  renderCurrentWeather(city, data.current, data.timezone);
+  renderForecast(data.daily, data.timezone);
+}
+
+// Fetches weather data for given location from the Weather Geolocation
+// endpoint; then, calls functions to display current and forecast weather data.
+function fetchWeather(location) {
+  var { lat } = location;
+  var { lon } = location;
+  var city = location.name;
+  var apiUrl = `${weatherApiRootUrl}/data/2.5/onecall?lat=${lat}&lon=${lon}&units=imperial&exclude=minutely,hourly&appid=${weatherApiKey}`;
+
+  fetch(apiUrl)
+    .then(function (res) {
+      return res.json();
     })
-    .catch(function(error) {
-        alert('Unable to load weather.');
+    .then(function (data) {
+      renderItems(city, data);
     })
+    .catch(function (err) {
+      console.error(err);
+    });
 }
 
-// uses latitude and longitude to fetch current weather and five-day forecast
-var getCityForecast = function(city, lon, lat) {
-    var oneCallApi = `https://api.openweathermap.org/data/2.5/onecall?lat=${lat}&lon=${lon}&units=imperial&exclude=minutely,hourly,alerts&appid=${apiKey}`;
-    fetch(oneCallApi).then(function(response) {
-        if (response.ok) {
-            response.json().then(function(data) {
+function fetchCoords(search) {
+  var apiUrl = `${weatherApiRootUrl}/geo/1.0/direct?q=${search}&limit=5&appid=${weatherApiKey}`;
 
-                // identifies city name in forecast
-                cityNameEl.textContent = `${city} (${moment().format("M/D/YYYY")})`; 
-
-                console.log(data)
-
-                currentForecast(data);
-                fiveDayForecast(data);
-            });
-        }
+  fetch(apiUrl)
+    .then(function (res) {
+      return res.json();
     })
+    .then(function (data) {
+      if (!data[0]) {
+        alert('Location not found');
+      } else {
+        appendToHistory(search);
+        fetchWeather(data[0]);
+      }
+    })
+    .catch(function (err) {
+      console.error(err);
+    });
 }
 
-// helper function to select HTML element and display rounded temperature
-var displayTemp = function(element, temperature) {
-    var tempEl = document.querySelector(element);
-    var elementText = Math.round(temperature);
-    tempEl.textContent = elementText;
+function handleSearchFormSubmit(e) {
+  // Don't continue if there is nothing in the search form
+  if (!searchInput.value) {
+    return;
+  }
+
+  e.preventDefault();
+  var search = searchInput.value.trim();
+  fetchCoords(search);
+  searchInput.value = '';
 }
 
-// displays current forecast
-var currentForecast = function(forecast) {
-    
-    var forecastEl = document.querySelector('.city-forecast');
-    forecastEl.classList.remove('hide');
+function handleSearchHistoryClick(e) {
+  // Don't do search if current elements is not a search history button
+  if (!e.target.matches('.btn-history')) {
+    return;
+  }
 
-    var weatherIconEl = document.querySelector('#today-icon');
-    var currentIcon = forecast.current.weather[0].icon;
-    weatherIconEl.setAttribute('src', `http://openweathermap.org/img/wn/${currentIcon}.png`);
-    weatherIconEl.setAttribute('alt', forecast.current.weather[0].main)
-
-    displayTemp('#current-temp', forecast.current['temp']);
-    displayTemp('#current-feels-like', forecast.current['feels_like']);
-    displayTemp('#current-high', forecast.daily[0].temp.max);
-    displayTemp('#current-low', forecast.daily[0].temp.min);
-
-    var currentConditionEl = document.querySelector('#current-condition');
-    currentConditionEl.textContent = forecast.current.weather[0].description
-        .split(' ')
-        .map((s) => s.charAt(0).toUpperCase() + s.substring(1))
-        .join(' ');
-
-    var currentHumidityEl = document.querySelector('#current-humidity');
-    currentHumidityEl.textContent = forecast.current['humidity'];
-
-    var currentWindEl = document.querySelector('#current-wind-speed')
-    currentWindEl.textContent = forecast.current['wind_speed'];
-
-    var uviEl = document.querySelector('#current-uvi')
-    var currentUvi = forecast.current['uvi'];
-    uviEl.textContent = currentUvi;
-
-    // styles UV index
-    switch (true) {
-        case (currentUvi <= 2):
-            uviEl.className = 'badge badge-success';
-            break;
-        case (currentUvi <= 5):
-            uviEl.className = 'badge badge-warning';
-            break;
-        case (currentUvi <=7):
-            uviEl.className = 'badge badge-danger';
-            break;
-        default:
-            uviEl.className = 'badge text-light';
-            uviEl.setAttribute('style', 'background-color: #553C7B');
-    }
+  var btn = e.target;
+  var search = btn.getAttribute('data-search');
+  fetchCoords(search);
 }
 
-// display five day forecast
-var fiveDayForecast = function(forecast) { 
-    
-    for (var i = 1; i < 6; i++) {
-        var dateP = document.querySelector('#date-' + i);
-        dateP.textContent = moment().add(i, 'days').format('M/D/YYYY');
-
-        var iconImg = document.querySelector('#icon-' + i);
-        var iconCode = forecast.daily[i].weather[0].icon;
-        iconImg.setAttribute('src', `http://openweathermap.org/img/wn/${iconCode}.png`);
-        iconImg.setAttribute('alt', forecast.daily[i].weather[0].main);
-
-        displayTemp('#temp-' + i, forecast.daily[i].temp.day);
-        displayTemp('#high-' + i, forecast.daily[i].temp.max);
-        displayTemp('#low-' + i, forecast.daily[i].temp.min);
-
-        var humiditySpan = document.querySelector('#humidity-' + i);
-        humiditySpan.textContent = forecast.daily[i].humidity;
-    }
-}
-
-// saves cities into local storage
-var saveCity = function(city) {
-
-    // prevents duplicate city from being saved and moves it to end of array
-    for (var i = 0; i < cityArr.length; i++) {
-        if (city === cityArr[i]) {
-            cityArr.splice(i, 1);
-        }
-    }
-
-    cityArr.push(city);
-    localStorage.setItem('cities', JSON.stringify(cityArr));
-}
-
-// loads cities from local storage
-var loadCities = function() {
-    cityArr = JSON.parse(localStorage.getItem('cities'));
-
-    if (!cityArr) {
-        cityArr = [];
-        return false;
-    } else if (cityArr.length > 5) {
-        // saves only the five most recent cities
-        cityArr.shift();
-    }
-
-    var recentCities = document.querySelector('#recent-cities');
-    var cityListUl = document.createElement('ul');
-    cityListUl.className = 'list-group list-group-flush city-list';
-    recentCities.appendChild(cityListUl);
-
-    for (var i = 0; i < cityArr.length; i++) {
-        var cityListItem = document.createElement('button');
-        cityListItem.setAttribute('type', 'button');
-        cityListItem.className = 'list-group-item';
-        cityListItem.setAttribute('value', cityArr[i]);
-        cityListItem.textContent = cityArr[i];
-        cityListUl.prepend(cityListItem);
-    }
-
-    var cityList = document.querySelector('.city-list');
-    cityList.addEventListener('click', selectRecent)
-}
-
-var selectRecent = function(event) {
-    var clickedCity = event.target.getAttribute('value');
-
-    getCoords(clickedCity);
-}
-
-loadCities();
-cityBtn.addEventListener('click', formHandler)
-
-// searches for city on ENTER key
-cityInput.addEventListener('keyup', function(event) {
-    if (event.keyCode === 13) {
-        cityBtn.click();
-    }
-});
+initSearchHistory();
+searchForm.addEventListener('submit', handleSearchFormSubmit);
+searchHistoryContainer.addEventListener('click', handleSearchHistoryClick);
