@@ -27,3 +27,5 @@ THEN I am again presented with current and future conditions for that city
 The following image demonstrates the application functionality:
 
 ![weather dashboard demo](./Assets/06-server-side-apis-homework-demo.png)
+<img width="1440" alt="Weather-dashboard 1" src="https://user-images.githubusercontent.com/85650009/151900958-4e85a493-f8a0-47a2-aaca-5e1559fef26f.png">
+<img width="1440" alt="Weather-dashboard 2" src="https://user-images.githubusercontent.com/85650009/151901012-8812fdd1-142d-4f05-af64-86de00bd9dec.png">
